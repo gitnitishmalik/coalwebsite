@@ -173,6 +173,35 @@ export async function saveUpload(item: UploadAnalysis) {
   await write(KEYS.uploads, list.slice(0, 25));
 }
 
+/* ---------------- login throttling ---------------- */
+
+const FAIL_WINDOW_S = 15 * 60;
+const memoryFails = new Map<string, { n: number; until: number }>();
+
+export async function loginFailures(id: string): Promise<number> {
+  if (storeMode() === "redis") return Number((await client().get<number>(`jce:loginfail:${id}`)) ?? 0);
+  const e = memoryFails.get(id);
+  return e && e.until > Date.now() ? e.n : 0;
+}
+
+export async function recordLoginFailure(id: string): Promise<number> {
+  if (storeMode() === "redis") {
+    const key = `jce:loginfail:${id}`;
+    const n = await client().incr(key);
+    if (n === 1) await client().expire(key, FAIL_WINDOW_S);
+    return n;
+  }
+  const e = memoryFails.get(id);
+  const n = e && e.until > Date.now() ? e.n + 1 : 1;
+  memoryFails.set(id, { n, until: Date.now() + FAIL_WINDOW_S * 1000 });
+  return n;
+}
+
+export async function clearLoginFailures(id: string) {
+  if (storeMode() === "redis") await client().del(`jce:loginfail:${id}`);
+  else memoryFails.delete(id);
+}
+
 /* ---------------- images ---------------- */
 
 /** Keep a copy of an uploaded file (Vercel Blob, or public/uploads in file mode). */
