@@ -22,17 +22,21 @@ export function BriefEditor({ initial, isDraft, aiOn, me }: { initial: Board; is
   const [deep, setDeep] = useState(false);
   const brief = board.brief;
 
-  const generate = () =>
+  // "Generate" always gives the same draft for the same data (saved answer, temperature 0).
+  // "Another wording" deliberately asks for a different version of the same facts.
+  const generate = (another: boolean) =>
     start(async () => {
       if (brief.paragraphs.length && !confirm("Replace the current brief with a new AI draft?")) return;
-      const res = await draftBriefAction(board, deep);
+      const res = await draftBriefAction(board, deep, another);
       if (!res.ok) return void toast.error(res.error);
       update((b) => {
         b.brief = { paragraphs: res.data!.paragraphs, generatedAt: new Date().toISOString(), model: res.data!.model, reviewedBy: null, reviewedAt: null };
         return b;
       });
-      if (res.data!.unverified.length) toast.warning(`Check these figures — they are not in the data: ${res.data!.unverified.join(", ")}`, { duration: 12000 });
-      else toast.success("New draft written — every figure traced to the data. Read it, then mark it reviewed.");
+      const how = res.data!.saved ? "Same data as before — this is the saved draft." : "New draft written.";
+      if (res.data!.unverified.length)
+        toast.warning(`${how} Check these figures — they are not in the data: ${res.data!.unverified.join(", ")}. Publishing will stop until they are fixed or confirmed.`, { duration: 15000 });
+      else toast.success(`${how} Every figure traced to the data. Read it, then mark it reviewed.`);
     });
 
   const edit = (fn: (p: string[]) => void) =>
@@ -47,15 +51,21 @@ export function BriefEditor({ initial, isDraft, aiOn, me }: { initial: Board; is
     <>
       <div className="grid gap-6 p-4 md:p-8 xl:grid-cols-2">
         <Panel
+          className="min-w-0"
           title="Editor"
           sub="AI writes only from the numbers in your draft, and every figure is checked against them. Editing a reviewed brief resets its review."
           action={
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <label className="flex cursor-pointer items-center gap-1.5 text-xs text-ink-soft" title="Reasoning mode: slower but more thorough">
                 <input type="checkbox" checked={deep} onChange={(e) => setDeep(e.target.checked)} className="size-4 accent-primary" /> Deep
               </label>
-              <Button onClick={generate} disabled={busy || !aiOn}>
-                {busy ? <LoaderCircle className="animate-spin" /> : <Sparkles />} {brief.paragraphs.length ? "Regenerate" : "Generate"} with AI
+              {brief.generatedAt && (
+                <Button variant="outline" onClick={() => generate(true)} disabled={busy || !aiOn} title="Same facts, different wording">
+                  <RotateCcw /> Another wording
+                </Button>
+              )}
+              <Button onClick={() => generate(false)} disabled={busy || !aiOn}>
+                {busy ? <LoaderCircle className="animate-spin" /> : <Sparkles />} Generate with AI
               </Button>
             </div>
           }
@@ -93,7 +103,7 @@ export function BriefEditor({ initial, isDraft, aiOn, me }: { initial: Board; is
             {brief.generatedAt ? `Last AI draft ${fmtDate(brief.generatedAt)}${brief.model ? ` · ${brief.model}` : ""}.` : "Written by hand."} Save the draft, then publish to show it on the site.
           </p>
         </Panel>
-        <div>
+        <div className="min-w-0">
           <p className="mb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">Live preview</p>
           <BriefCard board={board} />
         </div>

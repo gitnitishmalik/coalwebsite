@@ -1,8 +1,9 @@
 import { briefFacts, MODELS } from "@/lib/ai";
+import { answerKey } from "@/lib/ai-cache";
 import { currentAdmin } from "@/lib/auth";
 import { groundText } from "@/lib/grounding";
 import { chatStream, nvidiaEnabled } from "@/lib/nvidia";
-import { getDraft, getHistory, getPending, getPublished, getUploads } from "@/lib/store";
+import { getDraft, getHistory, getPending, getPublished, getSavedAnswer, getUploads, saveAnswer } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -42,16 +43,27 @@ export async function POST(req: Request) {
     recentUploads: uploads.slice(0, 3).map((u) => ({ at: u.at.slice(0, 10), files: u.files.map((f) => f.name), overview: u.ai?.overview })),
   };
 
+  // Same question (ignoring case/spacing) + same data + same conversation → the saved answer.
+  const key = answerKey("ask", { q: question.replace(/\s+/g, " ").toLowerCase(), facts, prior });
+  const saved = await getSavedAnswer<{ text: string; model: string }>(key);
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const t0 = Date.now();
+      if (saved) {
+        controller.enqueue(encoder.encode(saved.text));
+        const grounding = groundText(saved.text, facts, { derived: true });
+        controller.enqueue(encoder.encode("\u0000" + JSON.stringify({ model: saved.model, ms: Date.now() - t0, grounding, error: null, saved: true })));
+        controller.close();
+        return;
+      }
       let text = "", model = MODELS.reasoning, error: string | null = null;
       try {
         const gen = chatStream({
           model: MODELS.reasoning,
           thinking: false,
-          temperature: 0.1,
+          temperature: 0,
           maxTokens: 900,
           messages: [
             {
@@ -75,7 +87,8 @@ export async function POST(req: Request) {
         error = e instanceof Error ? e.message : "The AI request failed.";
       }
       const grounding = groundText(text, facts, { derived: true });
-      controller.enqueue(encoder.encode("\u0000" + JSON.stringify({ model, ms: Date.now() - t0, grounding, error })));
+      if (!error && text.trim()) await saveAnswer(key, { text, model });
+      controller.enqueue(encoder.encode("\u0000" + JSON.stringify({ model, ms: Date.now() - t0, grounding, error, saved: false })));
       controller.close();
     },
   });

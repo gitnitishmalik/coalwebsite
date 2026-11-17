@@ -1,6 +1,8 @@
 import "server-only";
 import * as z from "zod";
+import { answerKey, hasSavedAnswer, remember } from "./ai-cache";
 import { allRows, hbaStats, ladderSlope, nar6000, sameDayHba } from "./analytics";
+import { diffRows } from "./board-diff";
 import { groundText, type Grounding } from "./grounding";
 import { chat, chatJson, MODELS, nvidiaEnabled, type ContentPart } from "./nvidia";
 import type { Board, LadderPoint, Region } from "./types";
@@ -10,8 +12,9 @@ import type { Board, LadderPoint, Region } from "./types";
  *  - readImages / readText: turn an uploaded board (image, sheet, PDF, text) into rows
  *  - analyse: overview + summary of an upload, written only from computed facts
  *  - draftBrief: weekly market brief from the board's own numbers
- * Hallucination guards: low temperature, facts computed in code, images read twice
- * and compared, and every number in AI text traced back to the data (grounding).
+ * Hallucination guards: temperature 0, facts computed in code, images read twice
+ * and compared, every number in AI text traced back to the data (grounding), and
+ * saved answers so the same input always gives the same output (ai-cache.ts).
  */
 
 export { MODELS };
@@ -111,6 +114,10 @@ const CLERK = "You are a meticulous data-entry clerk for a coal price-reporting 
 /* ---------------- 1a. images ---------------- */
 
 export async function readImages(images: string[]): Promise<Extraction & { model: string }> {
+  return (await remember(answerKey("read-images", images), () => readImagesNow(images))).value;
+}
+
+async function readImagesNow(images: string[]): Promise<Extraction & { model: string }> {
   const content: ContentPart[] = [
     ...images.map((url) => ({ type: "image_url" as const, image_url: { url } })),
     {
@@ -120,8 +127,10 @@ export async function readImages(images: string[]): Promise<Extraction & { model
   ];
   const read = (temperature: number) =>
     chatJson({ model: MODELS.vision, temperature, thinking: false, maxTokens: 6000, messages: [{ role: "system", content: CLERK }, { role: "user", content }] }, (v) => CompactSchema.parse(v));
-  // Two independent reads in parallel; disagreements are flagged, not guessed.
-  const [a, b] = await Promise.allSettled([read(0.1), read(0.3)]);
+  // Two reads in parallel; disagreements are flagged, not guessed. The main read is at
+  // temperature 0 (repeatable); the checking read keeps a little randomness on purpose —
+  // two identical reads would repeat the same mistake and the comparison would catch nothing.
+  const [a, b] = await Promise.allSettled([read(0), read(0.3)]);
   if (a.status === "rejected" && b.status === "rejected") throw a.reason;
   const first = a.status === "fulfilled" ? a.value : (b as PromiseFulfilledResult<Awaited<ReturnType<typeof read>>>).value;
   const second = a.status === "fulfilled" && b.status === "fulfilled" ? b.value : null;
@@ -133,10 +142,14 @@ export async function readImages(images: string[]): Promise<Extraction & { model
 /* ---------------- 1b. text (sheets, CSV, PDF, pasted) ---------------- */
 
 export async function readText(text: string): Promise<Extraction & { model: string }> {
+  return (await remember(answerKey("read-text", text), () => readTextNow(text))).value;
+}
+
+async function readTextNow(text: string): Promise<Extraction & { model: string }> {
   const r = await chatJson(
     {
       model: MODELS.vision,
-      temperature: 0.1,
+      temperature: 0,
       thinking: false,
       maxTokens: 6000,
       messages: [
@@ -166,7 +179,7 @@ const AnalysisSchema = z
     risks: lines(6),
   })
   .refine((a) => a.summary.length > 0 || a.overview.length > 0, "empty analysis");
-export type Analysis = z.infer<typeof AnalysisSchema> & { model: string; ms: number; grounding: Grounding };
+export type Analysis = z.infer<typeof AnalysisSchema> & { model: string; ms: number; grounding: Grounding; saved?: boolean };
 
 /**
  * `deep` turns on the model's reasoning mode. Measured on NVIDIA (Nov 2026): Ultra answers in
@@ -174,12 +187,17 @@ export type Analysis = z.infer<typeof AnalysisSchema> & { model: string; ms: num
  * off by default; the facts are computed in code and every number is traced afterwards.
  */
 export async function analyse(facts: Record<string, unknown>, deep = false): Promise<Analysis> {
+  const r = await remember(answerKey("analysis", { facts, deep }), () => analyseNow(facts, deep));
+  return { ...r.value, saved: r.saved };
+}
+
+async function analyseNow(facts: Record<string, unknown>, deep: boolean): Promise<Analysis> {
   const r = await chatJson(
     {
       // Fast path: Super (~90 tok/s). Deep: Ultra with reasoning (~54 tok/s + thinking).
       model: deep ? MODELS.reasoning : MODELS.vision,
       thinking: deep,
-      temperature: 0.2,
+      temperature: 0,
       maxTokens: deep ? 16000 : 4000,
       messages: [
         {
@@ -219,7 +237,8 @@ export function briefFacts(board: Board) {
     nextUpdateHasPassed: Date.parse(board.meta.nextUpdate) < Date.now(),
     board: allRows(board).map((r) => ({ ref: r.ref, region: r.region.label, origin: r.origin, spec: `${r.spec} ${r.region.basis}`, mid: r.mid, low: r.low, high: r.high })),
     ladderSlopePer100kcal: ladderSlope(board) ? Number(ladderSlope(board)!.perStep.toFixed(2)) : null,
-    nar6000Ranking: nar6000(board).map((r) => ({ name: r.name, mid: r.mid })),
+    // Gaps computed here so the AI quotes them instead of doing arithmetic (and the publish gate can verify them).
+    nar6000Ranking: nar6000(board).map((r, _, all) => ({ name: r.name, mid: r.mid, belowTop: Number((all[0].mid - r.mid).toFixed(2)) })),
     scr1VsHbaSamePeriod:
       head && same?.value != null
         ? { hbaPeriod: same.period, hba: same.value, scr1: head.mid, gap: Number((head.mid - same.value).toFixed(2)), gapPct: Number((((head.mid - same.value) / same.value) * 100).toFixed(1)) }
@@ -237,14 +256,48 @@ export function briefFacts(board: Board) {
   };
 }
 
-export async function draftBrief(board: Board, deep = false): Promise<{ paragraphs: string[]; model: string; grounding: Grounding }> {
+/**
+ * Publish gate: every number in the brief must exist in the data it can legitimately quote —
+ * the draft, the live board, the exact before/after changes between them, the ladder and the
+ * HBA ledger. Deliberately no "derived" matching: with hundreds of known numbers, almost any
+ * invented figure equals the difference of some pair, so that would let nearly everything through.
+ */
+export function checkBriefNumbers(draft: Board, live: Board): Grounding {
+  const text = draft.brief.paragraphs.join("\n");
+  if (!text.trim()) return { checked: 0, unverified: [] };
+  const facts = {
+    draft: briefFacts(draft),
+    live: briefFacts(live),
+    changesVsLive: diffRows(live, draft.regions),
+    ladder: draft.ladder.map(({ spec, mid, low, high }) => ({ spec, mid, low, high })),
+    hba: draft.hba.map((p) => p.value),
+  };
+  return groundText(text, facts);
+}
+
+type DraftedBrief = { paragraphs: string[]; model: string; grounding: Grounding };
+
+/**
+ * Same board → the saved draft. `another` asks for a different wording of the same facts
+ * (the "Regenerate" button): it runs at a little temperature and replaces the saved draft.
+ */
+export async function draftBrief(board: Board, deep = false, another = false): Promise<DraftedBrief & { saved: boolean }> {
   const facts = briefFacts(board);
+  const key = answerKey("brief", { facts, deep });
+  // A different wording only makes sense if a draft for exactly these facts already exists;
+  // after the prices change, "Regenerate" is just a normal temperature-0 draft.
+  const variant = another && (await hasSavedAnswer(key));
+  const r = await remember(key, () => draftBriefNow(facts, deep, variant ? 0.4 : 0), { fresh: variant });
+  return { ...r.value, saved: r.saved };
+}
+
+async function draftBriefNow(facts: ReturnType<typeof briefFacts>, deep: boolean, temperature: number): Promise<DraftedBrief> {
   const r = await chatJson(
     {
       // Fast path: Super (~90 tok/s). Deep: Ultra with reasoning (~54 tok/s + thinking).
       model: deep ? MODELS.reasoning : MODELS.vision,
       thinking: deep,
-      temperature: 0.2,
+      temperature,
       maxTokens: deep ? 12000 : 3000,
       messages: [
         { role: "system", content: "You write the weekly market brief for Jakarta Coal Exchange. Use only the FACTS provided. No forecasts, no trading advice, no causes the facts do not state." },

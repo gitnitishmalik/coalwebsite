@@ -35,6 +35,12 @@ export type Message = { role: "system" | "user" | "assistant"; content: string |
 
 export class AiError extends Error {}
 
+/**
+ * 0 = always pick the most likely next word, so the same input gives (near-)identical output.
+ * NVIDIA's GPUs don't promise bit-for-bit repeats even at 0 — saved answers (ai-cache.ts) cover that.
+ */
+export const DEFAULT_TEMPERATURE = 0;
+
 type ChatOpts = {
   model: string;
   messages: Message[];
@@ -51,7 +57,7 @@ async function call(opts: ChatOpts, withTemplateKwargs: boolean): Promise<{ text
   const body: Record<string, unknown> = {
     model: opts.model,
     messages: opts.messages,
-    temperature: opts.temperature ?? 0.2,
+    temperature: opts.temperature ?? DEFAULT_TEMPERATURE,
     top_p: 0.95,
     max_tokens: opts.maxTokens ?? 8192,
     stream: false,
@@ -118,7 +124,7 @@ export async function* chatStream(opts: ChatOpts): AsyncGenerator<string, { mode
     body: JSON.stringify({
       model: opts.model,
       messages: opts.messages,
-      temperature: opts.temperature ?? 0.2,
+      temperature: opts.temperature ?? DEFAULT_TEMPERATURE,
       top_p: 0.95,
       max_tokens: opts.maxTokens ?? 2000,
       stream: true,

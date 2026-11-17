@@ -173,6 +173,43 @@ export async function saveUpload(item: UploadAnalysis) {
   await write(KEYS.uploads, list.slice(0, 25));
 }
 
+/* ---------------- saved AI answers ---------------- */
+// Same question + same data → same answer. Keys are content hashes (see ai-cache.ts), so a
+// changed board, prompt or model simply produces a new key; old entries expire on their own.
+
+const AI_TTL_S = 30 * 24 * 3600;
+const memoryAi = new Map<string, unknown>();
+const aiFile = (key: string) => path.join(dataDir(), "ai-cache", key.replace(/[^a-z0-9_-]/gi, "_") + ".json");
+
+export async function getSavedAnswer<T>(key: string): Promise<T | null> {
+  const mode = storeMode();
+  try {
+    if (mode === "redis") return (await client().get<T>(`jce:ai:${key}`)) ?? null;
+    if (mode === "file") return JSON.parse(await fs.readFile(aiFile(key), "utf8")) as T;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") console.error("[store] saved answer read failed", err);
+    return null;
+  }
+  return (memoryAi.get(key) as T | undefined) ?? null;
+}
+
+export async function saveAnswer(key: string, value: unknown): Promise<void> {
+  const mode = storeMode();
+  try {
+    if (mode === "redis") return void (await client().set(`jce:ai:${key}`, value, { ex: AI_TTL_S }));
+    if (mode === "file") {
+      await fs.mkdir(path.dirname(aiFile(key)), { recursive: true });
+      return void (await fs.writeFile(aiFile(key), JSON.stringify(value), "utf8"));
+    }
+  } catch (err) {
+    console.error("[store] saved answer write failed", err); // never block an answer on the cache
+    return;
+  }
+  // Read-only deployment: keep a small per-instance memory cache.
+  memoryAi.set(key, value);
+  if (memoryAi.size > 200) memoryAi.delete(memoryAi.keys().next().value!);
+}
+
 /* ---------------- login throttling ---------------- */
 
 const FAIL_WINDOW_S = 15 * 60;

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import * as z from "zod";
-import { aiEnabled, analyse, draftBrief, readImages, readText, testModels, type Extraction } from "@/lib/ai";
+import { aiEnabled, analyse, checkBriefNumbers, draftBrief, readImages, readText, testModels, type Extraction } from "@/lib/ai";
 import { hbaStats } from "@/lib/analytics";
 import { endSession, requireAdmin } from "@/lib/auth";
 import { diffRows, mergeExtraction } from "@/lib/board-diff";
@@ -28,7 +28,7 @@ import {
 } from "@/lib/store";
 import type { Board, HbaPoint, Region, UploadAnalysis } from "@/lib/types";
 
-export type ActionResult<T = undefined> = { ok: true; data?: T; message?: string } | { ok: false; error: string };
+export type ActionResult<T = undefined> = { ok: true; data?: T; message?: string } | { ok: false; error: string; unverified?: string[] };
 
 function fail(err: unknown): { ok: false; error: string } {
   if (err instanceof ReadOnlyStoreError) return { ok: false, error: err.message };
@@ -62,11 +62,30 @@ export async function saveDraftAction(input: Board): Promise<ActionResult> {
   }
 }
 
-export async function publishAction(input?: Board): Promise<ActionResult> {
+/**
+ * Publish the draft. Hard gate: if the market brief contains a figure that can't be found in the
+ * data, publishing stops and lists it. The editor can fix the brief, or confirm those exact figures
+ * (`acknowledged`) — that override is written to the activity log.
+ */
+export async function publishAction(input?: Board, opts: { acknowledged?: string[] } = {}): Promise<ActionResult> {
   const me = await requireAdmin();
   try {
     if (input) await saveDraft(parseBoard(input));
+    const [{ board: draft }, live] = await Promise.all([getDraft(), getPublished()]);
+    const { unverified } = checkBriefNumbers(draft, live);
+    if (unverified.length) {
+      const ack = new Set(opts.acknowledged ?? []);
+      if (!unverified.every((u) => ack.has(u))) {
+        const one = unverified.length === 1;
+        return {
+          ok: false,
+          unverified,
+          error: `Not published: the market brief has ${one ? "a figure" : "figures"} that can't be found in the data — ${unverified.join(", ")}. Correct the brief, or confirm you've checked ${one ? "it" : "them"}.`,
+        };
+      }
+    }
     const pub = await publishDraft(me.user);
+    if (unverified.length) await audit("Published with unverified brief figures (editor confirmed)", `${unverified.join(", ")} · ${me.user}`);
     revalidatePath("/", "layout");
     return { ok: true, message: `Published version ${pub.meta.version}. The public site is updating now.` };
   } catch (e) {
@@ -250,13 +269,17 @@ export async function applyUploadAction(id: string, what: { prices: boolean; bri
 
 /* ---------------- AI: brief + connection test ---------------- */
 
-export async function draftBriefAction(input: Board, deep = false): Promise<ActionResult<{ paragraphs: string[]; model: string; unverified: string[] }>> {
+export async function draftBriefAction(
+  input: Board,
+  deep = false,
+  another = false,
+): Promise<ActionResult<{ paragraphs: string[]; model: string; unverified: string[]; saved: boolean }>> {
   const me = await requireAdmin();
   try {
     if (!aiEnabled()) return { ok: false, error: "AI is off. Add NVIDIA_API_KEY in the environment." };
-    const r = await draftBrief(parseBoard(input), deep === true);
-    await audit("AI drafted the market brief", me.user);
-    return { ok: true, data: { paragraphs: r.paragraphs, model: r.model, unverified: r.grounding.unverified } };
+    const r = await draftBrief(parseBoard(input), deep === true, another === true);
+    if (!r.saved) await audit("AI drafted the market brief", me.user);
+    return { ok: true, data: { paragraphs: r.paragraphs, model: r.model, unverified: r.grounding.unverified, saved: r.saved } };
   } catch (e) {
     return fail(e);
   }

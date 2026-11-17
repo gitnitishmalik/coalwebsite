@@ -136,6 +136,7 @@ export function CommandCenter({ refs, aiOn }: { refs: { ref: string; label: stri
             whileHover={{ y: -2 }}
             onClick={() => setAskOpen(true)}
             className="fixed right-5 bottom-20 z-40 flex items-center gap-2 rounded-full bg-foreground py-2.5 pr-4 pl-3 text-sm font-semibold text-background shadow-[0_12px_32px_-10px_rgba(15,23,42,.55)] lg:bottom-6"
+            data-ask-fab
             aria-label="Open AI assistant"
           >
             <span className="grid size-7 place-items-center rounded-full bg-gradient-to-br from-amber-400 to-orange-600">

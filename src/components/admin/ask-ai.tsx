@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { ArrowUp, BadgeCheck, Calculator, CircleStop, Sparkles, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type Meta = { model: string; ms: number; grounding: { checked: number; unverified: string[]; derived?: string[] }; error: string | null };
+type Meta = { model: string; ms: number; grounding: { checked: number; unverified: string[]; derived?: string[] }; error: string | null; saved?: boolean };
 type Turn = { q: string; a: string; meta: Meta | null; firstMs: number | null; streaming: boolean };
 
 const SUGGESTIONS = [
@@ -62,7 +62,7 @@ function GroundBadge({ meta }: { meta: Meta }) {
         </span>
       )}
       <span className="text-muted-foreground">
-        {meta.model.split("/").pop()} · {(meta.ms / 1000).toFixed(1)}s
+        {meta.model.split("/").pop()} · {meta.saved ? "saved answer (same question, same data)" : `${(meta.ms / 1000).toFixed(1)}s`}
       </span>
     </div>
   );

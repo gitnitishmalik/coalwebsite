@@ -52,19 +52,30 @@ export function useDraft(initial: Board, initiallyDraft: boolean) {
     [board, router],
   );
 
-  const publish = useCallback(
-    () =>
+  const publish = useCallback(() => {
+    // If the brief has figures that can't be traced to the data, the server refuses and lists them.
+    // The editor can fix the brief, or confirm exactly those figures and publish anyway (logged).
+    function go(acknowledged?: string[]) {
       start(async () => {
-        const res = await publishAction(board);
-        if (!res.ok) return void toast.error(res.error);
+        const res = await publishAction(board, acknowledged ? { acknowledged } : undefined);
+        if (!res.ok) {
+          const list = res.unverified;
+          if (list?.length && !acknowledged) {
+            toast.error(res.error, { duration: 60_000, action: { label: "I've checked — publish", onClick: () => go(list) } });
+            return;
+          }
+          toast.error(res.error);
+          return;
+        }
         baseline.current = JSON.stringify(board);
         setDirty(false);
         setHasDraft(false);
         toast.success(res.message ?? "Published");
         router.refresh();
-      }),
-    [board, router],
-  );
+      });
+    }
+    go();
+  }, [board, router]);
 
   const discard = useCallback(
     () =>
