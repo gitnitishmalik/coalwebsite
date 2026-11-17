@@ -4,7 +4,7 @@ import path from "path";
 import { Redis } from "@upstash/redis";
 import { put } from "@vercel/blob";
 import { SEED_BOARD } from "./seed";
-import type { AuditEntry, Board, HistoryEntry, PendingHba } from "./types";
+import type { AuditEntry, Board, HistoryEntry, PendingHba, UploadAnalysis } from "./types";
 
 /**
  * Storage with three interchangeable drivers, chosen from the environment:
@@ -27,6 +27,7 @@ const KEYS = {
   history: "jce:history",
   pending: "jce:pending",
   audit: "jce:audit",
+  uploads: "jce:uploads",
 } as const;
 type Key = (typeof KEYS)[keyof typeof KEYS];
 
@@ -160,17 +161,30 @@ export async function audit(action: string, detail?: string) {
   await write(KEYS.audit, log.slice(0, 200));
 }
 
+/* ---------------- upload analyses ---------------- */
+
+export async function getUploads(): Promise<UploadAnalysis[]> {
+  return (await read<UploadAnalysis[]>(KEYS.uploads)) ?? [];
+}
+
+export async function saveUpload(item: UploadAnalysis) {
+  const list = (await getUploads()).filter((u) => u.id !== item.id);
+  list.unshift(item);
+  await write(KEYS.uploads, list.slice(0, 25));
+}
+
 /* ---------------- images ---------------- */
 
-export async function storeImage(file: File): Promise<string> {
-  const ext = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
-  const name = `boards/board-${Date.now()}.${ext}`;
+/** Keep a copy of an uploaded file (Vercel Blob, or public/uploads in file mode). */
+export async function storeFile(file: File): Promise<string> {
+  const safe = (file.name || "file").replace(/[^a-zA-Z0-9._-]+/g, "-").slice(-60);
+  const name = `uploads/${Date.now()}-${safe}`;
   if (blobEnabled()) {
-    const blob = await put(name, file, { access: "public", contentType: file.type });
+    const blob = await put(name, file, { access: "public", contentType: file.type || "application/octet-stream", addRandomSuffix: true });
     return blob.url;
   }
   if (storeMode() === "file") {
-    const dir = path.join(process.cwd(), "public", "uploads", "boards");
+    const dir = path.join(process.cwd(), "public", "uploads", "uploads");
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(path.join(process.cwd(), "public", "uploads", name), Buffer.from(await file.arrayBuffer()));
     return `/uploads/${name}`;

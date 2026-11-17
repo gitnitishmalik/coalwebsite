@@ -39,7 +39,7 @@ export function BriefCard({ board, className }: { board: Board; className?: stri
         ))}
       </div>
       <p className="mt-6 border-t pt-4 text-xs text-muted-foreground">
-        Written by Claude from the figures on this site only{b.generatedAt ? ` · ${fmtDate(b.generatedAt)}` : ""}. Not investment advice.
+        Written by AI (NVIDIA Nemotron) from the figures on this site only{b.generatedAt ? ` · ${fmtDate(b.generatedAt)}` : ""}. Not investment advice.
       </p>
     </div>
   );

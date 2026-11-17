@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, Plus, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,7 +12,6 @@ import { runChecks } from "@/lib/checks";
 import type { Board } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { DraftBar } from "./draft-bar";
-import { ImageImport } from "./image-import";
 import { NumCell, TextCell } from "./num-cell";
 import { Panel } from "./page-title";
 import { useDraft } from "./use-draft";
@@ -25,9 +25,14 @@ export function PricesEditor({ initial, isDraft, aiOn }: { initial: Board; isDra
     <>
       <div className="grid gap-6 p-4 md:p-8 2xl:grid-cols-[1fr_380px]">
         <div className="min-w-0 space-y-6">
-          <Panel title="Import from image" sub="Claude reads the board and fills the tables below. You review every change before it is applied.">
-            <ImageImport board={board} aiOn={aiOn} onApply={(b) => update(() => b)} />
-          </Panel>
+          <Link href="/admin/upload" className="group flex items-center gap-4 rounded-2xl border border-primary/30 bg-gradient-to-r from-orange-50 to-white p-5 transition hover:shadow-md">
+            <span className="grid size-12 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground"><Upload className="size-5" /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-semibold">Upload a board image, Excel, PDF or CSV</span>
+              <span className="block text-sm text-muted-foreground">AI reads it twice, compares it with the live board and writes an overview{aiOn ? "" : " — add NVIDIA_API_KEY to enable"}.</span>
+            </span>
+            <ArrowRight className="size-5 text-primary transition-transform group-hover:translate-x-1" />
+          </Link>
 
           <Panel title="Schedule">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

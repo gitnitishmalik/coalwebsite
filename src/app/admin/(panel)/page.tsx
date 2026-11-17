@@ -6,7 +6,7 @@ import { ChecksList } from "@/components/site/insight-cards";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { NumberTicker } from "@/components/ui/number-ticker";
 import { buttonVariants } from "@/components/ui/button";
-import { aiEnabled } from "@/lib/ai";
+import { aiEnabled, MODELS } from "@/lib/ai";
 import { allRows } from "@/lib/analytics";
 import { currentAdmin } from "@/lib/auth";
 import { checkCounts, runChecks } from "@/lib/checks";
@@ -44,14 +44,14 @@ export default async function Dashboard() {
   const system = [
     { ok: mode !== "readonly", label: "Database", detail: mode === "redis" ? "Upstash Redis" : mode === "file" ? "Local files (.data)" : "Not connected — read-only" },
     { ok: blobEnabled() || mode === "file", label: "Image storage", detail: blobEnabled() ? "Vercel Blob" : mode === "file" ? "public/uploads" : "Not connected" },
-    { ok: aiEnabled(), label: "Claude AI", detail: aiEnabled() ? "Enabled" : "Add ANTHROPIC_API_KEY" },
-    { ok: Boolean(process.env.CRON_SECRET), label: "Daily HBA search", detail: process.env.CRON_SECRET ? "Scheduled 02:00 UTC" : "Add CRON_SECRET" },
+    { ok: aiEnabled(), label: "NVIDIA AI", detail: aiEnabled() ? MODELS.reasoning.split("/")[1] : "Add NVIDIA_API_KEY" },
+    { ok: Boolean(process.env.CRON_SECRET), label: "Daily HBA news monitor", detail: process.env.CRON_SECRET ? "Scheduled 02:00 UTC" : "Add CRON_SECRET" },
   ];
 
   return (
     <>
       <AdminTitle title={`${greet}, ${me?.user ?? "Editor"}`} sub={`Live assessment ${fmtDate(published.meta.assessmentDate)} · next update ${fmtDate(published.meta.nextUpdate)}`}>
-        <Link href="/admin/prices" className={buttonVariants({ size: "lg" })}>
+        <Link href="/admin/upload" className={buttonVariants({ size: "lg" })}>
           <ImageUp /> Upload new board
         </Link>
       </AdminTitle>
@@ -77,8 +77,8 @@ export default async function Dashboard() {
           <Panel title="Quick actions">
             <div className="grid gap-2">
               {[
-                { href: "/admin/prices", icon: ImageUp, t: "Read a board image with AI", d: "Upload the weekly JPEG/PNG — Claude fills the table for you to check." },
-                { href: "/admin/benchmarks", icon: Bot, t: "Find new HBA releases", d: "Claude searches the Ministry and news sites, with sources." },
+                { href: "/admin/upload", icon: ImageUp, t: "Upload & analyse with AI", d: "Image, Excel, PDF or CSV — AI extracts prices, compares them and writes a summary." },
+                { href: "/admin/benchmarks", icon: Bot, t: "Find new HBA releases", d: "Checks the news and groups outlets that agree — no AI guessing." },
                 { href: "/admin/insights", icon: Sparkles, t: "Draft the market brief", d: "Generate from the current numbers, edit, approve." },
               ].map((a) => (
                 <Link key={a.href} href={a.href} className="group flex items-start gap-3 rounded-xl border p-3 transition hover:border-primary/40 hover:bg-accent/40">

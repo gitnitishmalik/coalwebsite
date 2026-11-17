@@ -31,7 +31,8 @@ export const LadderSchema = z.object({
   reconstructed: z.boolean().optional(),
 });
 
-export const SourceSchema = z.object({ name: z.string().trim().min(1).max(80), url: z.url().max(500) });
+// News-aggregator links can be long, so allow up to 2,048 characters.
+export const SourceSchema = z.object({ name: z.string().trim().min(1).max(120), url: z.url().max(2048) });
 
 export const HbaSchema = z.object({
   period: z.string().trim().regex(/^[A-Z][a-z]{2}-(I|II)$/, "Use e.g. Nov-II"),

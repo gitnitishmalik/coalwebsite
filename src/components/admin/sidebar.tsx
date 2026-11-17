@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
-import { ExternalLink, FileText, Gauge, Landmark, LogOut, Settings, Table2 } from "lucide-react";
+import { ExternalLink, FileText, Gauge, Landmark, LogOut, Settings, Sparkles, Table2 } from "lucide-react";
 import { logoutAction } from "@/app/admin/actions";
 import { Logo } from "@/components/site/logo";
 import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/admin", label: "Dashboard", icon: Gauge },
+  { href: "/admin/upload", label: "Upload & AI", icon: Sparkles },
   { href: "/admin/prices", label: "Prices", icon: Table2 },
   { href: "/admin/benchmarks", label: "HBA benchmark", icon: Landmark },
   { href: "/admin/insights", label: "AI brief", icon: FileText },

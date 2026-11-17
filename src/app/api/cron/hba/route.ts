@@ -1,4 +1,3 @@
-import { aiEnabled } from "@/lib/ai";
 import { runHbaSearch } from "@/lib/hba-search";
 import { audit, storeMode } from "@/lib/store";
 
@@ -14,7 +13,6 @@ export async function GET(request: Request) {
   if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
     return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
-  if (!aiEnabled()) return Response.json({ ok: false, error: "ANTHROPIC_API_KEY not set" }, { status: 503 });
   if (storeMode() === "readonly") return Response.json({ ok: false, error: "storage not connected" }, { status: 503 });
   try {
     const { added, note } = await runHbaSearch("cron");

@@ -10,7 +10,7 @@ export default async function AdminInsights() {
   const [{ board, isDraft }, me] = await Promise.all([getDraft(), currentAdmin()]);
   return (
     <>
-      <AdminTitle title="AI market brief" sub="Generate a draft with Claude, edit it, mark it reviewed, then publish." />
+      <AdminTitle title="AI market brief" sub="Generate a draft with AI, edit it, mark it reviewed, then publish." />
       <BriefEditor initial={board} isDraft={isDraft} aiOn={aiEnabled()} me={me?.user ?? "Editor"} />
     </>
   );

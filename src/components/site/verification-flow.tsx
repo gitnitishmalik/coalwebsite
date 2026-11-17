@@ -5,7 +5,7 @@ import { Radar, ScanText, ShieldCheck, Rocket, UserCheck } from "lucide-react";
 
 const STEPS = [
   { icon: Radar, title: "Collect", text: "Ministry releases, news outlets and FX are fetched automatically every day." },
-  { icon: ScanText, title: "Extract", text: "Claude reads each release or uploaded price board and turns it into structured prices." },
+  { icon: ScanText, title: "Extract", text: "AI reads every upload twice and turns it into structured prices; disagreements are flagged." },
   { icon: ShieldCheck, title: "Verify", text: "Two sources must agree, or the Ministry decree. Ranges, arithmetic and outliers are tested." },
   { icon: UserCheck, title: "Review", text: "The editor sees every flag in the admin panel and approves what goes live." },
   { icon: Rocket, title: "Publish", text: "Board, charts and the AI brief update together — with sources attached." },

@@ -74,15 +74,14 @@ export function HbaEditor({ initial, isDraft, pending, aiOn }: { initial: Board;
       <div className="space-y-6 p-4 md:p-8">
         <Panel
           title="Waiting for approval"
-          sub="Values Claude found on the web (button below, or the daily search). Approving adds them to your draft — publish to make them live."
+          sub="Values the news monitor found (button below, or the daily run). Headlines are parsed by fixed rules — no AI guessing — and outlets that agree are grouped. Approving adds them to your draft."
           action={
-            <Button onClick={search} disabled={busy || !aiOn}>
-              {busy ? <LoaderCircle className="animate-spin" /> : <Bot />} Search for new HBA releases
+            <Button onClick={search} disabled={busy}>
+              {busy ? <LoaderCircle className="animate-spin" /> : <Bot />} Check the news now
             </Button>
           }
         >
-          {!aiOn && <p className="mb-3 text-sm text-warning">AI is off — add ANTHROPIC_API_KEY to enable web search.</p>}
-          {busy && <p className="mb-3 text-sm text-muted-foreground">Claude is searching the Ministry and news sites. This can take a minute…</p>}
+          {busy && <p className="mb-3 text-sm text-muted-foreground">Reading the latest HBA headlines…</p>}
           <AnimatePresence initial={false}>
             {pending.length ? (
               <ul className="space-y-3">

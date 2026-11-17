@@ -1,22 +1,23 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { authReady, checkPassword, startSession } from "@/lib/auth";
+import { authReady, checkLogin, displayName, startSession } from "@/lib/auth";
 import { audit } from "@/lib/store";
 
-export type LoginState = { error?: string } | undefined;
+export type LoginState = { error?: string; email?: string } | undefined;
 
 export async function loginAction(_prev: LoginState, form: FormData): Promise<LoginState> {
-  if (!authReady()) return { error: "Admin login is not configured. Set ADMIN_PASSWORD and ADMIN_SESSION_SECRET in the environment." };
-  const name = String(form.get("name") ?? "").trim().slice(0, 40) || "Editor";
+  if (!authReady()) return { error: "Sign-in is not configured. Set ADMIN_EMAIL, ADMIN_PASSWORD and ADMIN_SESSION_SECRET." };
+  const email = String(form.get("email") ?? "").trim().slice(0, 120);
   const password = String(form.get("password") ?? "");
-  if (!checkPassword(password)) {
-    await new Promise((r) => setTimeout(r, 700)); // slow down guessing
-    return { error: "Incorrect password." };
+  if (!email || !password) return { error: "Enter your email and password.", email };
+  if (!checkLogin(email, password)) {
+    await new Promise((r) => setTimeout(r, 800)); // slow down guessing
+    return { error: "Incorrect email or password.", email };
   }
-  await startSession(name);
+  await startSession(email);
   try {
-    await audit("Signed in", name);
+    await audit("Signed in", displayName(email));
   } catch {}
   const next = String(form.get("next") ?? "");
   redirect(next.startsWith("/admin") ? next : "/admin");

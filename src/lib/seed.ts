@@ -171,7 +171,7 @@ export const SEED_BOARD: Board = {
       "The HBA peaked at $131.85 in Jul-II and has eased to $125.60 (Nov-I), falling in 4 of the 5 consecutive revisions since. It is still $3.77 above Jun-I, so a fresh JCE assessment is due.",
     ],
     generatedAt: "2026-11-17T00:00:00.000Z",
-    model: "Claude",
+    model: "AI draft",
     reviewedBy: null,
     reviewedAt: null,
   },

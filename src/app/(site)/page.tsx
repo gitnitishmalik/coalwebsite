@@ -85,7 +85,7 @@ export default async function HomePage() {
         <SectionHeading
           kicker="AI insight"
           title="Brief, possibilities and checks"
-          sub="Claude drafts the brief from the numbers above; rules check every figure before it goes live."
+          sub="AI drafts the brief from the numbers above; rules check every figure before it goes live."
           action={
             <Link href="/insights" className={cn(buttonVariants({ variant: "outline" }), "bg-white")}>
               All insights <ArrowRight />

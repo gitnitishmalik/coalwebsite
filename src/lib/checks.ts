@@ -29,6 +29,18 @@ export function runChecks(board: Board, now = Date.now()): Check[] {
       out.push({ id: `mid-${r.ref}`, level: "critical", title: `${r.ref} mid sits outside its range`, detail: `Mid ${usd(r.mid)} vs range ${usd(lo)}–${usd(hi)}.` });
   }
 
+  // 2b. Mid should be the middle of the range (catches misreads)
+  for (const r of rows) {
+    const avg = (r.low + r.high) / 2;
+    if (r.low <= r.high && Math.abs(avg - r.mid) > 0.03)
+      out.push({
+        id: `midpoint-${r.ref}`,
+        level: "warning",
+        title: `${r.ref} mid is not the middle of its range`,
+        detail: `Mid ${usd(r.mid)} vs midpoint ${usd(avg)} of ${usd(r.low)}–${usd(r.high)}. Check for a typo.`,
+      });
+  }
+
   // 3. Duplicate references
   const seen = new Map<string, number>();
   rows.forEach((r) => seen.set(r.ref, (seen.get(r.ref) ?? 0) + 1));

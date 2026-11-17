@@ -9,7 +9,7 @@ export default async function AdminBenchmarks() {
   const [{ board, isDraft }, pending] = await Promise.all([getDraft(), getPending()]);
   return (
     <>
-      <AdminTitle title="HBA benchmark" sub="Indonesia’s Government Reference Price. Approve what Claude finds, or edit the ledger and its sources directly." />
+      <AdminTitle title="HBA benchmark" sub="Indonesia’s Government Reference Price. Approve what the daily news monitor finds, or edit the ledger and its sources directly." />
       <HbaEditor initial={board} isDraft={isDraft} pending={pending} aiOn={aiEnabled()} />
     </>
   );

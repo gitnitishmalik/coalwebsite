@@ -106,3 +106,19 @@ export interface FxRate {
   live: boolean;
   source: string;
 }
+
+export interface UploadAnalysis {
+  id: string;
+  at: string;
+  by: string;
+  files: { name: string; kind: string; size: number; meta: string; url: string | null }[];
+  extracted: { assessmentDate: string | null; regions: Region[]; ladder: LadderPoint[] } | null;
+  uncertain: string[];
+  notes: string[];
+  changes: { ref: string; label: string; before: number | null; after: number; delta: number | null; pct: number | null }[];
+  checks: Check[];
+  ai: { overview: string; summary: string[]; highlights: string[]; risks: string[]; model: string; ms: number } | null;
+  aiError: string | null;
+  grounding: { checked: number; unverified: string[] } | null;
+  appliedAt: string | null;
+}

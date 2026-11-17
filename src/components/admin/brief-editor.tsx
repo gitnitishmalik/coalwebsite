@@ -30,7 +30,8 @@ export function BriefEditor({ initial, isDraft, aiOn, me }: { initial: Board; is
         b.brief = { paragraphs: res.data!.paragraphs, generatedAt: new Date().toISOString(), model: res.data!.model, reviewedBy: null, reviewedAt: null };
         return b;
       });
-      toast.success("New draft written. Read it, edit if needed, then mark it reviewed.");
+      if (res.data!.unverified.length) toast.warning(`Check these figures — they are not in the data: ${res.data!.unverified.join(", ")}`, { duration: 12000 });
+      else toast.success("New draft written — every figure traced to the data. Read it, then mark it reviewed.");
     });
 
   const edit = (fn: (p: string[]) => void) =>
@@ -46,14 +47,14 @@ export function BriefEditor({ initial, isDraft, aiOn, me }: { initial: Board; is
       <div className="grid gap-6 p-4 md:p-8 xl:grid-cols-2">
         <Panel
           title="Editor"
-          sub="Claude writes only from the numbers in your draft. Editing a reviewed brief resets its review."
+          sub="AI writes only from the numbers in your draft, and every figure is checked against them. Editing a reviewed brief resets its review."
           action={
             <Button onClick={generate} disabled={busy || !aiOn}>
-              {busy ? <LoaderCircle className="animate-spin" /> : <Sparkles />} {brief.paragraphs.length ? "Regenerate" : "Generate"} with Claude
+              {busy ? <LoaderCircle className="animate-spin" /> : <Sparkles />} {brief.paragraphs.length ? "Regenerate" : "Generate"} with AI
             </Button>
           }
         >
-          {!aiOn && <p className="mb-3 text-sm text-warning">AI is off — add ANTHROPIC_API_KEY to generate briefs. You can still write one by hand.</p>}
+          {!aiOn && <p className="mb-3 text-sm text-warning">AI is off — add NVIDIA_API_KEY to generate briefs. You can still write one by hand.</p>}
           <div className="space-y-3">
             {brief.paragraphs.map((p, i) => (
               <div key={`${i}-${p.length}`} className="flex gap-2">

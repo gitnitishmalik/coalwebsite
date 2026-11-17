@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: "Methodology", description: "How Jaka
 const PILLARS = [
   { icon: Users, title: "No membership, no log-in", text: "The board is free to read. There is no subscription fee and no private pricing club." },
   { icon: Scale, title: "“Top & Tailed Mid of Mids”", text: "Sceats Coal Report’s disciplined methodology: extreme indications are removed before the mid of the remaining mids is assessed." },
-  { icon: Sparkles, title: "AI-assisted, editor-approved", text: "Claude reads releases and drafts the brief. Nothing is published until an editor has seen every flag." },
+  { icon: Sparkles, title: "AI-assisted, editor-approved", text: "AI reads uploads and drafts the brief; every figure is traced back to the data. Nothing is published until an editor has seen every flag." },
   { icon: Building2, title: "Towards an exchange", text: "JCE will later evolve into a physical and derivative coal exchange." },
 ];
 

@@ -4,26 +4,45 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { SESSION_COOKIE, SESSION_HOURS, sessionConfigured, signSession, verifySession } from "./session";
 
-/** Password configured? In development a default is allowed so the panel works out of the box. */
-export function adminPassword(): string | null {
-  if (process.env.ADMIN_PASSWORD) return process.env.ADMIN_PASSWORD;
-  return process.env.NODE_ENV !== "production" ? "admin" : null;
+/**
+ * Admin sign-in with email + password.
+ *   ADMIN_EMAIL    – the admin's email (several allowed, comma-separated)
+ *   ADMIN_PASSWORD – set by the owner; there is no default
+ */
+
+export function adminEmails(): string[] {
+  return (process.env.ADMIN_EMAIL || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
 }
 
 export function authReady() {
-  return adminPassword() !== null && sessionConfigured();
+  return adminEmails().length > 0 && Boolean(process.env.ADMIN_PASSWORD) && sessionConfigured();
 }
 
 const digest = (s: string) => createHash("sha256").update(s).digest();
 
-export function checkPassword(input: string): boolean {
-  const expected = adminPassword();
+export function checkLogin(email: string, password: string): boolean {
+  const expected = process.env.ADMIN_PASSWORD;
   if (!expected) return false;
-  return timingSafeEqual(digest(input), digest(expected));
+  const okEmail = adminEmails().includes(email.trim().toLowerCase());
+  const okPassword = timingSafeEqual(digest(password), digest(expected));
+  return okEmail && okPassword;
 }
 
-export async function startSession(user: string) {
-  const token = await signSession(user);
+/** "jakartacoal.admin@gmail.com" → "Jakartacoal Admin" */
+export function displayName(email: string) {
+  const local = email.split("@")[0] ?? email;
+  return local
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+export async function startSession(email: string) {
+  const token = await signSession(email.trim().toLowerCase());
   (await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
@@ -37,8 +56,11 @@ export async function endSession() {
   (await cookies()).delete(SESSION_COOKIE);
 }
 
+/** The signed-in admin, or null. Also rejects sessions whose email was removed from ADMIN_EMAIL. */
 export async function currentAdmin() {
-  return verifySession((await cookies()).get(SESSION_COOKIE)?.value);
+  const s = await verifySession((await cookies()).get(SESSION_COOKIE)?.value);
+  if (!s || !adminEmails().includes(s.user)) return null;
+  return { email: s.user, user: displayName(s.user) };
 }
 
 /** Call at the top of every admin server action / page. Proxy alone is not enough. */

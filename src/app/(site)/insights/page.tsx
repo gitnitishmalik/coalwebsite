@@ -14,7 +14,7 @@ export default async function InsightsPage() {
       <PageHeader
         kicker="AI insight"
         title="What the data says — and how sure we are"
-        sub="Claude drafts the brief from the published numbers. The possibility range is computed from real HBA history. Rules check every figure before it is published."
+        sub="AI drafts the brief from the published numbers, and every figure it writes is traced back to the data. The possibility range is computed from real HBA history. Rules check every figure before it is published."
       />
       <section className="container-x grid gap-4 pt-12 lg:grid-cols-[1.35fr_1fr]">
         <BlurFade><BriefCard board={board} className="h-full" /></BlurFade>
