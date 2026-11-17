@@ -118,6 +118,7 @@ export interface UploadAnalysis {
   changes: { ref: string; label: string; before: number | null; after: number; delta: number | null; pct: number | null }[];
   checks: Check[];
   ai: { overview: string; summary: string[]; highlights: string[]; risks: string[]; model: string; ms: number } | null;
+  timings?: { prepare: number; extract: number; summary: number; total: number };
   aiError: string | null;
   grounding: { checked: number; unverified: string[] } | null;
   appliedAt: string | null;

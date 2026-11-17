@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { HbaChart, HbaLegend } from "@/components/charts/hba-chart";
+import { HbaExplorer } from "@/components/charts/hba-explorer";
+import { HbaLegend } from "@/components/charts/hba-chart";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { NumberTicker } from "@/components/ui/number-ticker";
 import { HbaLedger } from "@/components/site/hba-ledger";
@@ -51,7 +52,7 @@ export default async function BenchmarksPage() {
             <HbaLegend />
           </div>
           <div className="mt-4">
-            <HbaChart hba={board.hba} jce={head ? { date: board.meta.assessmentDate, mid: head.mid, ref: head.ref } : null} height={380} />
+            <HbaExplorer hba={board.hba} jce={head ? { date: board.meta.assessmentDate, mid: head.mid, ref: head.ref } : null} height={380} />
           </div>
         </BlurFade>
       </section>

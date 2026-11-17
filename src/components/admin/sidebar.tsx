@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
-import { ExternalLink, FileText, Gauge, Landmark, LogOut, Settings, Sparkles, Table2 } from "lucide-react";
+import { ExternalLink, FileText, Gauge, Landmark, LogOut, Search, Settings, Sparkles, Table2 } from "lucide-react";
 import { logoutAction } from "@/app/admin/actions";
 import { Logo } from "@/components/site/logo";
+import { PaletteButton } from "./command-center";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -27,6 +28,7 @@ export function AdminSidebar({ user, pendingHba }: { user: string; pendingHba: n
         <div className="border-b px-5 py-4">
           <Link href="/admin"><Logo sub={false} /></Link>
           <div className="mt-1 pl-[42px] font-mono text-[10px] tracking-widest text-muted-foreground uppercase">Admin panel</div>
+          <PaletteButton className="mt-4" />
         </div>
         <nav className="flex-1 space-y-1 p-3" aria-label="Admin">
           {items.map((n) => (
@@ -56,6 +58,14 @@ export function AdminSidebar({ user, pendingHba }: { user: string; pendingHba: n
       <div className="sticky top-0 z-30 border-b bg-white lg:hidden">
         <div className="flex items-center justify-between px-4 py-3">
           <Logo sub={false} />
+          <button
+            type="button"
+            aria-label="Search or ask"
+            onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true }))}
+            className="ml-auto mr-3 grid size-9 place-items-center rounded-lg border text-muted-foreground"
+          >
+            <Search className="size-4" />
+          </button>
           <form action={logoutAction}>
             <button className="flex items-center gap-1.5 text-sm text-muted-foreground" aria-label="Sign out">
               <LogOut className="size-4" />

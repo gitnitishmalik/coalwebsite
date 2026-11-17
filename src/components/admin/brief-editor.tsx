@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { BadgeCheck, LoaderCircle, Plus, RotateCcw, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { draftBriefAction } from "@/app/admin/actions";
@@ -19,12 +19,13 @@ export function BriefEditor({ initial, isDraft, aiOn, me }: { initial: Board; is
   const { board, update } = d;
   const checks = useMemo(() => runChecks(board), [board]);
   const [busy, start] = useTransition();
+  const [deep, setDeep] = useState(false);
   const brief = board.brief;
 
   const generate = () =>
     start(async () => {
       if (brief.paragraphs.length && !confirm("Replace the current brief with a new AI draft?")) return;
-      const res = await draftBriefAction(board);
+      const res = await draftBriefAction(board, deep);
       if (!res.ok) return void toast.error(res.error);
       update((b) => {
         b.brief = { paragraphs: res.data!.paragraphs, generatedAt: new Date().toISOString(), model: res.data!.model, reviewedBy: null, reviewedAt: null };
@@ -49,9 +50,14 @@ export function BriefEditor({ initial, isDraft, aiOn, me }: { initial: Board; is
           title="Editor"
           sub="AI writes only from the numbers in your draft, and every figure is checked against them. Editing a reviewed brief resets its review."
           action={
-            <Button onClick={generate} disabled={busy || !aiOn}>
-              {busy ? <LoaderCircle className="animate-spin" /> : <Sparkles />} {brief.paragraphs.length ? "Regenerate" : "Generate"} with AI
-            </Button>
+            <div className="flex items-center gap-3">
+              <label className="flex cursor-pointer items-center gap-1.5 text-xs text-ink-soft" title="Reasoning mode: slower but more thorough">
+                <input type="checkbox" checked={deep} onChange={(e) => setDeep(e.target.checked)} className="size-4 accent-primary" /> Deep
+              </label>
+              <Button onClick={generate} disabled={busy || !aiOn}>
+                {busy ? <LoaderCircle className="animate-spin" /> : <Sparkles />} {brief.paragraphs.length ? "Regenerate" : "Generate"} with AI
+              </Button>
+            </div>
           }
         >
           {!aiOn && <p className="mb-3 text-sm text-warning">AI is off — add NVIDIA_API_KEY to generate briefs. You can still write one by hand.</p>}

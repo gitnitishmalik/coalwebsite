@@ -119,7 +119,9 @@ export async function analyzeUploadAction(form: FormData): Promise<ActionResult<
     if (files.some((f) => f.size > 10 * 1024 * 1024)) return { ok: false, error: "Each file must be under 10 MB." };
 
     // 1. Read every file (images → slices, sheets/PDF/CSV → text)
+    const t0 = Date.now();
     const contents: FileContent[] = await Promise.all(files.map(readFile));
+    const tRead = Date.now();
     if (pasted) contents.push({ name: "Pasted data", kind: "text", size: pasted.length, meta: `${pasted.split(/\r?\n/).length} lines`, text: pasted });
     const urls = await Promise.all(files.map((f) => storeFile(f).catch(() => null)));
 
@@ -146,6 +148,7 @@ export async function analyzeUploadAction(form: FormData): Promise<ActionResult<
         }),
       );
     const settled = await Promise.allSettled(reads);
+    const tExtract = Date.now();
     const readErrors = settled.filter((s): s is PromiseRejectedResult => s.status === "rejected").map((s) => (s.reason instanceof Error ? s.reason.message : "A file could not be read."));
     const extraction = combine(parts);
     if (!extraction && readErrors.length) throw new Error(readErrors[0]);
@@ -183,14 +186,18 @@ export async function analyzeUploadAction(form: FormData): Promise<ActionResult<
     let aiError: string | null = null;
     let grounding: UploadAnalysis["grounding"] = null;
     try {
-      const a = await analyse(facts);
+      const a = await analyse(facts, form.get("deep") === "1");
       ai = { overview: a.overview, summary: a.summary, highlights: a.highlights, risks: a.risks, model: a.model, ms: a.ms };
       grounding = a.grounding;
     } catch (e) {
       aiError = e instanceof Error ? e.message : "The summary could not be written.";
     }
 
+    const tDone = Date.now();
+    const timings = { prepare: tRead - t0, extract: tExtract - tRead, summary: tDone - tExtract, total: tDone - t0 };
+    console.info("[upload] timings ms", timings);
     const record: UploadAnalysis = {
+      timings,
       id: crypto.randomUUID(),
       at: new Date().toISOString(),
       by: me.user,
@@ -243,11 +250,11 @@ export async function applyUploadAction(id: string, what: { prices: boolean; bri
 
 /* ---------------- AI: brief + connection test ---------------- */
 
-export async function draftBriefAction(input: Board): Promise<ActionResult<{ paragraphs: string[]; model: string; unverified: string[] }>> {
+export async function draftBriefAction(input: Board, deep = false): Promise<ActionResult<{ paragraphs: string[]; model: string; unverified: string[] }>> {
   const me = await requireAdmin();
   try {
     if (!aiEnabled()) return { ok: false, error: "AI is off. Add NVIDIA_API_KEY in the environment." };
-    const r = await draftBrief(parseBoard(input));
+    const r = await draftBrief(parseBoard(input), deep === true);
     await audit("AI drafted the market brief", me.user);
     return { ok: true, data: { paragraphs: r.paragraphs, model: r.model, unverified: r.grounding.unverified } };
   } catch (e) {

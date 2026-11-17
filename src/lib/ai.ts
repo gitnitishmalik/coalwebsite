@@ -17,25 +17,9 @@ import type { Board, LadderPoint, Region } from "./types";
 export { MODELS };
 export const aiEnabled = nvidiaEnabled;
 
-/* ---------------- shared schema ---------------- */
-
-const num = z.coerce.number().finite();
-const RowSchema = z.object({
-  ref: z.string().min(1),
-  origin: z.string().default(""),
-  spec: num,
-  mid: num,
-  low: num,
-  high: num,
-  unreadable: z.boolean().optional().default(false),
-});
-const ExtractSchema = z.object({
-  assessmentDate: z.string().nullable().optional().default(null),
-  regions: z.array(z.object({ label: z.string().min(1), basis: z.enum(["GAR", "NAR"]).catch("NAR"), rows: z.array(RowSchema) })).default([]),
-  ladder: z.array(z.object({ spec: num, mid: num, low: num, high: num, ref: z.string().nullable().optional(), unreadable: z.boolean().optional().default(false) })).default([]),
-  notes: z.array(z.string()).default([]),
-});
-type RawExtract = z.infer<typeof ExtractSchema>;
+/* ---------------- extraction (compact format) ---------------- */
+// Rows come back as short arrays instead of labelled objects: about a third of the output
+// tokens, which made a full board read ~24 s instead of ~3 min on NVIDIA (measured Nov 2026).
 
 export interface Extraction {
   assessmentDate: string | null;
@@ -45,45 +29,60 @@ export interface Extraction {
   uncertain: string[];
 }
 
-const SCHEMA_TEXT = `{
-  "assessmentDate": "YYYY-MM-DD or null",
-  "regions": [ { "label": "Indonesia", "basis": "GAR" | "NAR",
-                 "rows": [ { "ref": "SCR#1", "origin": "Indonesia", "spec": 6322, "mid": 117.72, "low": 116.54, "high": 118.90, "unreadable": false } ] } ],
-  "ladder": [ { "spec": 6200, "mid": 113.79, "low": 112.65, "high": 114.92, "ref": null, "unreadable": false } ],
-  "notes": [ "anything an editor should know" ]
-}`;
+const CompactSchema = z.object({
+  date: z.string().nullable().optional().catch(null),
+  board: z.array(z.array(z.unknown())).catch([]),
+  ladder: z.array(z.array(z.unknown())).catch([]),
+  notes: z.array(z.string()).catch([]),
+});
+type Compact = z.infer<typeof CompactSchema>;
+
+const FORMAT = `Reply with ONLY this JSON:
+{"date": "YYYY-MM-DD or null",
+ "board": [["Region","GAR|NAR","Ref","Origin",spec,mid,low,high,unreadable]],
+ "ladder": [[gar,mid,low,high,"Ref or null",unreadable]],
+ "notes": ["anything an editor should know"]}`;
 
 const RULES = [
-  "Transcribe ONLY what is printed. Never invent, estimate or fill in missing rows.",
-  "low/high = the two <<RANGE>> values in the order printed (left = low, right = high). Do not reorder them even if they look swapped.",
-  "A ladder table has rows labelled 'Ladder' between SCR anchors: put every ladder line in `ladder` (anchors too, with ref = 'SCR#n' and spec = the anchor's calorific value).",
-  "If a value is covered or unclear, give your best reading and set unreadable = true.",
-  "If the content contains no coal price table, return empty arrays and explain in notes.",
-  "Reply with ONLY the JSON object.",
+  "Transcribe ONLY what is printed. Never invent, estimate or fill in rows.",
+  "board = the headline tables (e.g. Indonesia GAR, South America NAR, Russia NAR, USA NAR): one row per SCR reference.",
+  "low/high = the two <<RANGE>> values in the printed order (left first). Do not reorder them.",
+  "ladder = every line of a long ladder table (rows labelled 'Ladder' and its SCR anchor rows, with gar = the calorific value). Ladder rows do NOT go in board.",
+  "unreadable = true if a value is covered or unclear (give your best reading).",
+  "If there is no coal price table, return empty arrays and explain in notes.",
 ].join("\n- ");
 
-function normalise(x: RawExtract): Omit<Extraction, "uncertain"> {
-  return {
-    assessmentDate: x.assessmentDate && /^\d{4}-\d{2}-\d{2}$/.test(x.assessmentDate) ? x.assessmentDate : null,
-    regions: x.regions
-      .filter((r) => r.rows.length)
-      .map((r) => ({
-        id: r.label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
-        label: r.label.replace(/\s+/g, " ").trim(),
-        basis: r.basis,
-        rows: r.rows.map((row) => ({
-          ref: row.ref.replace(/\s+/g, ""),
-          origin: row.origin.trim(),
-          spec: Math.round(row.spec),
-          mid: row.mid,
-          low: row.low,
-          high: row.high,
-          note: row.unreadable ? "Unreadable in source — check" : null,
-        })),
-      })),
-    ladder: x.ladder.map((p) => ({ spec: Math.round(p.spec), mid: p.mid, low: p.low, high: p.high, ref: p.ref ? p.ref.replace(/\s+/g, "") : null, reconstructed: !!p.unreadable })),
-    notes: x.notes,
-  };
+const n = (v: unknown) => {
+  const x = typeof v === "number" ? v : Number(String(v ?? "").replace(/[$,\s]/g, ""));
+  return Number.isFinite(x) ? x : NaN;
+};
+const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "region";
+
+function normalise(x: Compact): Omit<Extraction, "uncertain"> {
+  const regions: Region[] = [];
+  for (const r of x.board) {
+    const [region, basis, ref, origin, spec, mid, low, high, unreadable] = r;
+    const row = { ref: String(ref ?? "").replace(/\s+/g, ""), origin: String(origin ?? "").trim(), spec: Math.round(n(spec)), mid: n(mid), low: n(low), high: n(high) };
+    if (!row.ref || ![row.mid, row.low, row.high].every(Number.isFinite)) continue;
+    const label = String(region ?? "Other").replace(/\s+/g, " ").trim();
+    let reg = regions.find((g) => g.label.toLowerCase() === label.toLowerCase());
+    if (!reg) regions.push((reg = { id: slugify(label), label, basis: /GAR/i.test(String(basis)) ? "GAR" : "NAR", rows: [] }));
+    if (reg.rows.some((o) => o.ref === row.ref)) continue; // first table wins (headline before ladder anchors)
+    reg.rows.push({ ...row, spec: Number.isFinite(row.spec) ? row.spec : 0, note: unreadable === true ? "Unreadable in source — check" : null });
+  }
+  const seen = new Set<number>();
+  const ladder: LadderPoint[] = [];
+  for (const l of x.ladder) {
+    const [gar, mid, low, high, ref, unreadable] = l;
+    const p = { spec: Math.round(n(gar)), mid: n(mid), a: n(low), b: n(high) };
+    if (!(p.spec > 0) || seen.has(p.spec) || ![p.mid, p.a, p.b].every(Number.isFinite)) continue;
+    seen.add(p.spec);
+    // Ladder tables often print high before low — order them; the board keeps the printed order.
+    ladder.push({ spec: p.spec, mid: p.mid, low: Math.min(p.a, p.b), high: Math.max(p.a, p.b), ref: ref ? String(ref).replace(/\s+/g, "") : null, reconstructed: unreadable === true });
+  }
+  ladder.sort((a, b) => b.spec - a.spec);
+  const date = x.date && /^\d{4}-\d{2}-\d{2}$/.test(x.date) ? x.date : null;
+  return { assessmentDate: date, regions, ladder, notes: x.notes };
 }
 
 /** Cells where two independent reads disagree, or that fail the midpoint test. */
@@ -102,9 +101,12 @@ function compareReads(a: Omit<Extraction, "uncertain">, b: Omit<Extraction, "unc
   for (const p of a.ladder) {
     const o = bLad.get(p.spec);
     if (o && Math.abs(o.mid - p.mid) > 0.005) out.push(`Ladder ${p.spec}: mid read as ${p.mid} and ${o.mid}`);
+    if (Math.abs((p.low + p.high) / 2 - p.mid) > 0.03) out.push(`Ladder ${p.spec}: mid ${p.mid} is not the middle of ${p.low}–${p.high}`);
   }
   return out;
 }
+
+const CLERK = "You are a meticulous data-entry clerk for a coal price-reporting agency. Accuracy over completeness.";
 
 /* ---------------- 1a. images ---------------- */
 
@@ -113,16 +115,13 @@ export async function readImages(images: string[]): Promise<Extraction & { model
     ...images.map((url) => ({ type: "image_url" as const, image_url: { url } })),
     {
       type: "text",
-      text: `${images.length > 1 ? `These ${images.length} images are consecutive slices (top to bottom, slightly overlapping) of ONE price board — do not duplicate rows that appear in two slices.\n` : ""}Transcribe the coal price board into this JSON shape:\n${SCHEMA_TEXT}\n\nRules:\n- ${RULES}`,
+      text: `${images.length > 1 ? `These ${images.length} images are consecutive slices (top to bottom, slightly overlapping) of ONE price board — never list a row twice.\n` : ""}Transcribe the coal price board.\n${FORMAT}\n\nRules:\n- ${RULES}`,
     },
   ];
   const read = (temperature: number) =>
-    chatJson(
-      { model: MODELS.vision, temperature, thinking: false, maxTokens: 12000, messages: [{ role: "system", content: "You are a meticulous data-entry clerk for a coal price-reporting agency. Accuracy over completeness." }, { role: "user", content }] },
-      (v) => ExtractSchema.parse(v),
-    );
+    chatJson({ model: MODELS.vision, temperature, thinking: false, maxTokens: 6000, messages: [{ role: "system", content: CLERK }, { role: "user", content }] }, (v) => CompactSchema.parse(v));
   // Two independent reads in parallel; disagreements are flagged, not guessed.
-  const [a, b] = await Promise.allSettled([read(0.1), read(0.35)]);
+  const [a, b] = await Promise.allSettled([read(0.1), read(0.3)]);
   if (a.status === "rejected" && b.status === "rejected") throw a.reason;
   const first = a.status === "fulfilled" ? a.value : (b as PromiseFulfilledResult<Awaited<ReturnType<typeof read>>>).value;
   const second = a.status === "fulfilled" && b.status === "fulfilled" ? b.value : null;
@@ -139,18 +138,18 @@ export async function readText(text: string): Promise<Extraction & { model: stri
       model: MODELS.vision,
       temperature: 0.1,
       thinking: false,
-      maxTokens: 12000,
+      maxTokens: 6000,
       messages: [
-        { role: "system", content: "You are a meticulous data-entry clerk for a coal price-reporting agency. Accuracy over completeness." },
-        { role: "user", content: `Extract any coal price assessments from the content below into this JSON shape:\n${SCHEMA_TEXT}\n\nRules:\n- ${RULES}\n\nCONTENT:\n"""\n${text.slice(0, 60_000)}\n"""` },
+        { role: "system", content: CLERK },
+        { role: "user", content: `Extract any coal price assessments from the content below.\n${FORMAT}\n\nRules:\n- ${RULES}\n\nCONTENT:\n"""\n${text.slice(0, 60_000)}\n"""` },
       ],
     },
-    (v) => ExtractSchema.parse(v),
+    (v) => CompactSchema.parse(v),
   );
   const x = normalise(r.data);
   // Grounding for extraction: every extracted number must exist in the source text.
   const src = text.replace(/,(?=\d{3}\b)/g, "");
-  const present = (n: number) => [n.toFixed(2), n.toFixed(1), String(n), String(Math.round(n))].some((s) => src.includes(s));
+  const present = (v: number) => [v.toFixed(2), v.toFixed(1), String(v), String(Math.round(v))].some((s) => src.includes(s));
   const uncertain = compareReads(x, null);
   for (const reg of x.regions) for (const row of reg.rows) for (const k of ["mid", "low", "high"] as const) if (!present(row[k])) uncertain.push(`${row.ref} ${k} ${row[k]} not found in the file`);
   return { ...x, uncertain, model: r.model };
@@ -158,21 +157,30 @@ export async function readText(text: string): Promise<Extraction & { model: stri
 
 /* ---------------- 2. upload analysis ---------------- */
 
-const AnalysisSchema = z.object({
-  overview: z.string().min(1),
-  summary: z.array(z.string()).min(1).max(6),
-  highlights: z.array(z.string()).max(6).default([]),
-  risks: z.array(z.string()).max(6).default([]),
-});
+const lines = (max: number) => z.array(z.coerce.string()).catch([]).transform((a) => a.map((s) => s.trim()).filter(Boolean).slice(0, max));
+const AnalysisSchema = z
+  .object({
+    overview: z.coerce.string().catch(""),
+    summary: z.union([lines(6), z.string().transform((s) => s.split(/\n{2,}/).map((x) => x.trim()).filter(Boolean).slice(0, 6))]).catch([]),
+    highlights: lines(6),
+    risks: lines(6),
+  })
+  .refine((a) => a.summary.length > 0 || a.overview.length > 0, "empty analysis");
 export type Analysis = z.infer<typeof AnalysisSchema> & { model: string; ms: number; grounding: Grounding };
 
-export async function analyse(facts: Record<string, unknown>): Promise<Analysis> {
+/**
+ * `deep` turns on the model's reasoning mode. Measured on NVIDIA (Nov 2026): Ultra answers in
+ * ~1.5 s with reasoning off vs ~23 s on, with the same accuracy on fact-grounded tasks — so it's
+ * off by default; the facts are computed in code and every number is traced afterwards.
+ */
+export async function analyse(facts: Record<string, unknown>, deep = false): Promise<Analysis> {
   const r = await chatJson(
     {
-      model: MODELS.reasoning,
-      thinking: true,
-      temperature: 0.3,
-      maxTokens: 16000,
+      // Fast path: Super (~90 tok/s). Deep: Ultra with reasoning (~54 tok/s + thinking).
+      model: deep ? MODELS.reasoning : MODELS.vision,
+      thinking: deep,
+      temperature: 0.2,
+      maxTokens: deep ? 16000 : 4000,
       messages: [
         {
           role: "system",
@@ -229,14 +237,15 @@ export function briefFacts(board: Board) {
   };
 }
 
-export async function draftBrief(board: Board): Promise<{ paragraphs: string[]; model: string; grounding: Grounding }> {
+export async function draftBrief(board: Board, deep = false): Promise<{ paragraphs: string[]; model: string; grounding: Grounding }> {
   const facts = briefFacts(board);
   const r = await chatJson(
     {
-      model: MODELS.reasoning,
-      thinking: true,
-      temperature: 0.3,
-      maxTokens: 12000,
+      // Fast path: Super (~90 tok/s). Deep: Ultra with reasoning (~54 tok/s + thinking).
+      model: deep ? MODELS.reasoning : MODELS.vision,
+      thinking: deep,
+      temperature: 0.2,
+      maxTokens: deep ? 12000 : 3000,
       messages: [
         { role: "system", content: "You write the weekly market brief for Jakarta Coal Exchange. Use only the FACTS provided. No forecasts, no trading advice, no causes the facts do not state." },
         {
@@ -258,7 +267,7 @@ export async function testModels() {
     const t0 = Date.now();
     try {
       const r = await chat({ model, thinking: false, maxTokens: 20, temperature: 0, timeoutMs: 60_000, messages: [{ role: "user", content: "Reply with the single word OK." }] });
-      out.push({ role, model: r.model, ok: true, ms: r.ms, detail: r.text.slice(0, 40) });
+      out.push({ role, model: r.used, ok: r.used === model, ms: r.ms, detail: r.used === model ? r.text.slice(0, 40) : `unavailable — answered by ${r.used}` });
     } catch (e) {
       out.push({ role, model, ok: false, ms: Date.now() - t0, detail: e instanceof Error ? e.message.slice(0, 160) : "failed" });
     }

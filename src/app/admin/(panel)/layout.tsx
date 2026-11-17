@@ -1,16 +1,20 @@
 import type { Metadata } from "next";
 import { DatabaseZap } from "lucide-react";
+import { CommandCenter } from "@/components/admin/command-center";
 import { AdminSidebar } from "@/components/admin/sidebar";
+import { aiEnabled } from "@/lib/ai";
+import { allRows } from "@/lib/analytics";
 import { requireAdmin } from "@/lib/auth";
-import { getPending, storeMode } from "@/lib/store";
+import { getDraft, getPending, storeMode } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Admin", robots: { index: false, follow: false } };
 
 export default async function PanelLayout({ children }: { children: React.ReactNode }) {
   const me = await requireAdmin();
-  const pending = await getPending();
+  const [pending, { board }] = await Promise.all([getPending(), getDraft()]);
   const mode = storeMode();
+  const refs = allRows(board).map((r) => ({ ref: r.ref, label: `${r.region.label} · ${r.origin} ${r.spec} ${r.region.basis}` }));
   return (
     <div className="min-h-screen bg-background lg:flex">
       <AdminSidebar user={me.user} pendingHba={pending.length} />
@@ -26,6 +30,7 @@ export default async function PanelLayout({ children }: { children: React.ReactN
         )}
         {children}
       </div>
+      <CommandCenter refs={refs} aiOn={aiEnabled()} />
     </div>
   );
 }

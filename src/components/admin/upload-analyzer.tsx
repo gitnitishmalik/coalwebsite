@@ -54,7 +54,7 @@ function Working() {
         </span>
         <div>
           <div className="font-semibold">AI is working on your upload</div>
-          <div className="text-xs text-muted-foreground">{t}s elapsed · usually 30–120 seconds</div>
+          <div className="text-xs text-muted-foreground">{t}s elapsed · usually 20–40 seconds (Deep analysis: about a minute)</div>
         </div>
       </div>
       <ol className="mt-5 space-y-2.5">
@@ -132,7 +132,8 @@ function Result({ a, onApplied }: { a: UploadAnalysis; onApplied: () => void }) 
         {a.aiError && <p className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-critical">AI summary failed: {a.aiError}</p>}
         <p className="mt-4 text-xs text-muted-foreground">
           {fmtDateTime(a.at)} · by {a.by}
-          {a.ai && ` · ${a.ai.model} · ${(a.ai.ms / 1000).toFixed(1)}s`}
+          {a.ai && ` · ${a.ai.model.split("/").pop()}`}
+          {a.timings && ` · read ${(a.timings.extract / 1000).toFixed(0)}s + summary ${(a.timings.summary / 1000).toFixed(0)}s = ${(a.timings.total / 1000).toFixed(0)}s`}
           {a.appliedAt && ` · applied to draft ${fmtDateTime(a.appliedAt)}`}
         </p>
       </div>
@@ -272,6 +273,7 @@ export function UploadAnalyzer({ history, aiOn, latest }: { history: UploadAnaly
   const [hover, setHover] = useState(false);
   const [result, setResult] = useState<UploadAnalysis | null>(latest);
   const [pending, start] = useTransition();
+  const [deep, setDeep] = useState(false);
 
   async function add(list: FileList | null) {
     if (!list) return;
@@ -293,6 +295,7 @@ export function UploadAnalyzer({ history, aiOn, latest }: { history: UploadAnaly
     const fd = new FormData();
     files.forEach((f) => fd.append("files", f));
     if (text.trim()) fd.set("text", text);
+    if (deep) fd.set("deep", "1");
     setResult(null);
     start(async () => {
       const res = await analyzeUploadAction(fd);
@@ -356,6 +359,10 @@ export function UploadAnalyzer({ history, aiOn, latest }: { history: UploadAnaly
             <Button size="lg" className="h-11 px-6" onClick={analyse} disabled={pending || !aiOn || (!files.length && !text.trim())}>
               {pending ? <LoaderCircle className="animate-spin" /> : <Sparkles />} {pending ? "Analysing…" : "Analyse with AI"}
             </Button>
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-ink-soft" title="Turns on the model's reasoning mode: slower (about 20 s more) but more thorough on messy files.">
+              <input type="checkbox" checked={deep} onChange={(e) => setDeep(e.target.checked)} className="size-4 accent-primary" />
+              Deep analysis (slower)
+            </label>
             <span className="text-xs text-muted-foreground">{total ? `${(total / 1048576).toFixed(2)} MB selected` : "Large photos are compressed in your browser before upload."}</span>
           </div>
         </Panel>

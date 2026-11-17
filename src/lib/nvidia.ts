@@ -81,13 +81,14 @@ async function call(opts: ChatOpts, withTemplateKwargs: boolean): Promise<{ text
   return { text, model: j.model || opts.model, ms: Date.now() - t0 };
 }
 
-export async function chat(opts: ChatOpts): Promise<{ text: string; model: string; ms: number }> {
+/** `used` is the model ID from our chain that answered (NVIDIA may report it under another name). */
+export async function chat(opts: ChatOpts): Promise<{ text: string; model: string; ms: number; used: string }> {
   const chain = [opts.model, ...(FALLBACK[opts.model] ?? [])];
   let last: unknown;
   for (const model of chain) {
     for (const kwargs of [true, false]) {
       try {
-        return await call({ ...opts, model }, kwargs);
+        return { ...(await call({ ...opts, model }, kwargs)), used: model };
       } catch (e) {
         last = e;
         const status = (e as { status?: number }).status;
@@ -102,6 +103,78 @@ export async function chat(opts: ChatOpts): Promise<{ text: string; model: strin
     }
   }
   throw last instanceof Error ? last : new AiError("The AI request failed.");
+}
+
+/**
+ * Streamed answer (Server-Sent Events from NVIDIA). Yields text as it arrives, so the first words
+ * show up in well under a second. Reasoning tokens, if any, are skipped.
+ */
+export async function* chatStream(opts: ChatOpts): AsyncGenerator<string, { model: string }> {
+  const key = process.env.NVIDIA_API_KEY;
+  if (!key) throw new AiError("NVIDIA_API_KEY is not set.");
+  const res = await fetch(`${BASE}/chat/completions`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Accept: "text/event-stream" },
+    body: JSON.stringify({
+      model: opts.model,
+      messages: opts.messages,
+      temperature: opts.temperature ?? 0.2,
+      top_p: 0.95,
+      max_tokens: opts.maxTokens ?? 2000,
+      stream: true,
+      chat_template_kwargs: { enable_thinking: opts.thinking ?? false },
+    }),
+    signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
+    cache: "no-store",
+  });
+  if (!res.ok || !res.body) {
+    const detail = (await res.text().catch(() => "")).slice(0, 200);
+    throw new AiError(res.status === 401 || res.status === 403 ? "NVIDIA rejected the API key." : `NVIDIA API ${res.status}: ${detail}`);
+  }
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "", model = opts.model, inThink = false;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice(5).trim();
+      if (data === "[DONE]") return { model };
+      try {
+        const j = JSON.parse(data) as { model?: string; choices?: { delta?: { content?: string | null } }[] };
+        if (j.model) model = j.model;
+        let piece = j.choices?.[0]?.delta?.content ?? "";
+        // Drop inline <think>…</think> if a model emits it.
+        let out = "";
+        while (piece) {
+          if (inThink) {
+            const i = piece.indexOf("</think>");
+            if (i < 0) break;
+            inThink = false;
+            piece = piece.slice(i + 8);
+          } else {
+            const i = piece.indexOf("<think>");
+            if (i < 0) {
+              out += piece;
+              break;
+            }
+            out += piece.slice(0, i);
+            inThink = true;
+            piece = piece.slice(i + 7);
+          }
+        }
+        if (out) yield out;
+      } catch {
+        /* keep-alive or partial line */
+      }
+    }
+  }
+  return { model };
 }
 
 /** Pull the first JSON object out of a model answer (handles ```json fences and stray prose). */

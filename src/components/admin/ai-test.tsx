@@ -24,15 +24,12 @@ export function AiTest({ models, enabled }: { models: Record<string, string>; en
       <ul className="divide-y">
         {Object.entries(models).map(([role, model]) => {
           const r = rows?.find((x) => x.role === role);
-          const fellBack = r?.ok && !r.model.toLowerCase().includes(model.split("/")[1].toLowerCase());
           return (
             <li key={role} className="flex flex-wrap items-center gap-3 py-3 text-sm">
-              {r ? r.ok && !fellBack ? <CircleCheck className="size-4 text-good" /> : <CircleX className="size-4 text-critical" /> : <span className="size-4 rounded-full border" />}
+              {r ? r.ok ? <CircleCheck className="size-4 text-good" /> : <CircleX className="size-4 text-critical" /> : <span className="size-4 rounded-full border" />}
               <span className="w-36 font-medium">{ROLE[role] ?? role}</span>
               <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{model}</code>
-              <span className="ml-auto text-xs text-muted-foreground">
-                {r ? (r.ok ? (fellBack ? `unavailable — answered by ${r.model}` : `OK · ${(r.ms / 1000).toFixed(1)}s`) : r.detail) : ""}
-              </span>
+              <span className="ml-auto text-xs text-muted-foreground">{r ? (r.ok ? `OK · ${(r.ms / 1000).toFixed(1)}s` : r.detail) : ""}</span>
             </li>
           );
         })}
