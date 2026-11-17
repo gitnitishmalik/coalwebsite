@@ -18,7 +18,10 @@ const NAV = [
 ];
 
 export function SiteHeader() {
-  const path = usePathname();
+  // When Vercel regenerates the cached home page (ISR), usePathname() reports "/index",
+  // so the server HTML lost the active "Overview" pill and hydration failed (React #418).
+  const raw = usePathname();
+  const path = !raw || raw === "/index" ? "/" : raw;
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
@@ -27,7 +30,12 @@ export function SiteHeader() {
     window.addEventListener("scroll", on, { passive: true });
     return () => window.removeEventListener("scroll", on);
   }, []);
-  useEffect(() => setOpen(false), [path]);
+  // Close the mobile menu after navigating (adjusting state during render, not in an effect).
+  const [menuPath, setMenuPath] = useState(path);
+  if (menuPath !== path) {
+    setMenuPath(path);
+    setOpen(false);
+  }
 
   return (
     <header
